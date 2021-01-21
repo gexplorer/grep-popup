@@ -11,6 +11,9 @@
   :group 'tools
   :group 'matching)
 
+(defvar grep-popup-args nil
+  "Args to initialize the `grep-popup' with.")
+
 (defcustom grep-popup-function 'ignore
   "Function to perform the search.
 
@@ -18,15 +21,10 @@ This function must take two parameters: the first one is the
 directory, the second one is a list of args for the search."
   :type 'function)
 
-(defun grep-popup--map-args (transient-args)
-  "Convert TRANSIENT-ARGS to a list of args."
-  (mapcar
-   (lambda (arg)
-     (if (listp arg)
-         (let ((args (cdr arg)))
-           (mapconcat (lambda (x) (concat "--" x)) args " "))
-       arg))
-   transient-args))
+(defclass grep-popup-prefix (transient-prefix) nil)
+
+(cl-defmethod transient-init-value ((obj grep-popup-prefix))
+  (oset obj value grep-popup-args))
 
 (transient-define-argument grep-popup:--color ()
   :description "Use markers to highlight the matching strings"
@@ -45,20 +43,33 @@ directory, the second one is a list of args for the search."
   :choices '("binary" "text" "without-match"))
 
 ;;;###autoload
-(defun grep-popup-search-here ()
-  "Search using `grep-popup-function' in the current directory with selected args."
+(defun grep-popup-search ()
+  "Update current search."
   (interactive)
-  (grep-popup-search default-directory))
+  (let ((args (transient-args 'grep-popup)))
+    (setq grep-popup-args args)
+    (funcall grep-popup-function args)))
 
-;;;###autoload
-(defun grep-popup-search (directory)
-  "Search using `grep-popup-function' in a given DIRECTORY with selected args."
-  (interactive "DDirectory: ")
-  (let ((ag-args (grep-popup--map-args (transient-args 'grep-popup))))
-    (funcall grep-popup-function directory ag-args)))
+(defun grep-popup--read-number-N+ (prompt initial-input history)
+  "Read a natural number (excluding zero) and return it as a string."
+  (transient--suspend-override t)
+  (let* ((enable-recursive-minibuffers t)
+         (input (transient-read-number-N+ prompt initial-input history)))
+    (transient--resume-override t)
+    input))
+
+(defun grep-popup--read-regexp (prompt initial-input history)
+  "Read regexp arg for interactive grep using `read-regexp'."
+  (interactive)
+  (transient--suspend-override t)
+  (let* ((enable-recursive-minibuffers t)
+         (input (read-regexp prompt initial-input history)))
+    (transient--resume-override t)
+    input))
 
 (define-transient-command grep-popup ()
   "Search popup using `grep'."
+  :class 'grep-popup-prefix
   [["Pattern Syntax"
     ("-E" "Extended regexp" "--extended-regexp")
     ("-F" "Fixed strings" "--fixed-strings")
@@ -74,7 +85,7 @@ directory, the second one is a list of args for the search."
    (grep-popup:--color)
    (5 "-L" "Files without match" "--files-without-match")
    (5 "-l" "Files with match" "--files-with-match")
-   ("-m" "Max count" "--max-count=" transient-read-number-N+)
+   ("-m" "Max count" "--max-count=" grep-popup--read-number-N+)
    ("-o" "Only matching" "--only-matching")
    (5 "-q" "Quiet" "--quiet")
    (5 "-s" "No messages" "--no-messages")]
@@ -87,9 +98,9 @@ directory, the second one is a list of args for the search."
    (5 "-u" "Unix byte offsets" "--unix-byte-offsets")
    ("-Z" "Output zero byte after filename" "--null")]
   ["Context line control"
-   ("-A" "Print NUM lines of trailing context" "--after-context=" transient-read-number-N+)
-   ("-B" "Print NUM lines of leading context" "--before-context=" transient-read-number-N+)
-   ("-C" "Print NUM lines of output context" "--context=" transient-read-number-N+)
+   ("-A" "Print NUM lines of trailing context" "--after-context=" grep-popup--read-number-N+)
+   ("-B" "Print NUM lines of leading context" "--before-context=" grep-popup--read-number-N+)
+   ("-C" "Print NUM lines of output context" "--context=" grep-popup--read-number-N+)
    (5 "-U" "Do not strip CR characters at EOL (MSDOS/Windows)" "--binary")]
   ["File and directory selection"
    (grep-popup:--binary-files)
@@ -97,10 +108,9 @@ directory, the second one is a list of args for the search."
    (5 "-I" "Process a binary file as if it did not contain matching data")
    ("-r" "Read all files under each directory" "--recursive")
    ("-R" "Like -r but follow all symlinks" "--dereference-recursive")
-   ("=i" "Include" "--include=" grep-read-regexp)]
+   ("=i" "Include" "--include=" grep-popup--read-regexp)]
   ["Search"
-   ("s" "in current directory" grep-popup-search-here)
-   ("o" "in other directory" grep-popup-search)])
+   ("s" "in current directory" grep-popup-search)])
 
 (provide 'grep-popup)
 ;;; grep-popup.el ends here
